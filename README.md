@@ -2,6 +2,14 @@
 
 Fine-tuned **OpenAI's Whisper** on **Mozilla Common Voice Vietnamese** data for automatic speech recognition (ASR). Audio preprocessing with **Librosa** (resampling, noise augmentation, silence trimming). Evaluated with **WER/CER** metrics. Deployed as a **Gradio** demo with microphone and file input.
 
+[![Live Demo](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanvo/vietnamese-whisper-asr)
+
+## Demo
+
+![Demo Screenshot](demo_screenshot.png)
+
+**[Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/sanvo/vietnamese-whisper-asr)**
+
 ## Features
 
 - Fine-tuned **Whisper-small** on Vietnamese Common Voice data
