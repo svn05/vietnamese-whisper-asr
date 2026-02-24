@@ -132,19 +132,63 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {total_params:,}")
 
-    # Load data
+    # Load data — try FLEURS first (no auth needed), then Common Voice, then synthetic
+    train_samples = None
+    use_preprocessed = False
+    max_samples = config["data"]["max_train_samples"]
+
+    # Option 1: Google FLEURS Vietnamese (freely available, no auth required)
     try:
-        from data.prepare_common_voice import load_common_voice
-        train_data, test_data = load_common_voice("vi", config["data"]["max_train_samples"])
-        train_samples = [{"audio": item["audio"], "sentence": item["sentence"]} for item in train_data]
+        from datasets import load_dataset as hf_load_dataset, Audio
+        print("Loading Google FLEURS Vietnamese dataset...")
+        fleurs_dataset = hf_load_dataset(
+            "google/fleurs", "vi_vn",
+            split="train",
+            trust_remote_code=True,
+        )
+        fleurs_dataset = fleurs_dataset.cast_column("audio", Audio(sampling_rate=16000))
+        if len(fleurs_dataset) > max_samples:
+            fleurs_dataset = fleurs_dataset.select(range(max_samples))
+        train_samples = [
+            {"audio": item["audio"], "sentence": item["transcription"]}
+            for item in fleurs_dataset
+        ]
+        print(f"Loaded {len(train_samples)} FLEURS Vietnamese samples")
     except Exception as e:
-        print(f"Could not load Common Voice: {e}")
+        print(f"Could not load FLEURS: {e}")
+
+    # Option 2: Common Voice Vietnamese (needs HuggingFace auth)
+    if train_samples is None:
+        try:
+            from data.prepare_common_voice import load_common_voice
+            train_data, test_data = load_common_voice("vi", max_samples)
+            train_samples = [{"audio": item["audio"], "sentence": item["sentence"]} for item in train_data]
+        except Exception as e:
+            print(f"Could not load Common Voice: {e}")
+
+    # Option 3: Synthetic fallback
+    if train_samples is None:
         print("Using synthetic data for demo...")
         from data.prepare_common_voice import generate_synthetic_audio
         train_samples = generate_synthetic_audio(n_samples=100)
 
     # Create dataset
-    train_dataset = WhisperASRDataset(train_samples, processor, augment=True)
+    if use_preprocessed:
+        class PreprocessedDataset(Dataset):
+            """Dataset wrapping preprocessed Whisper features."""
+            def __init__(self, samples, pad_token_id):
+                self.samples = samples
+                self.pad_token_id = pad_token_id
+            def __len__(self):
+                return len(self.samples)
+            def __getitem__(self, idx):
+                item = self.samples[idx]
+                labels = item["labels"].clone()
+                labels[labels == self.pad_token_id] = -100
+                return {"input_features": item["input_features"], "labels": labels}
+        train_dataset = PreprocessedDataset(train_samples, processor.tokenizer.pad_token_id)
+    else:
+        train_dataset = WhisperASRDataset(train_samples, processor, augment=True)
 
     batch_size = args.batch_size or config["training"]["batch_size"]
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
